@@ -14,7 +14,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const isAdmin = (session.user as { id: string; isAdmin?: boolean }).isAdmin;
 
   // Verify ownership (or admin)
-  const check = await query("SELECT user_id FROM listings WHERE id = $1", [params.id]);
+  const check = await query<{ user_id: string }>("SELECT user_id FROM listings WHERE id = $1", [params.id]);
   if (!check.rows[0]) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (check.rows[0].user_id !== userId && !isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -79,7 +79,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   const userId = (session.user as { id: string; isAdmin?: boolean }).id;
   const isAdmin = (session.user as { id: string; isAdmin?: boolean }).isAdmin;
 
-  const check = await query("SELECT user_id FROM listings WHERE id = $1", [params.id]);
+  const check = await query<{ user_id: string }>("SELECT user_id FROM listings WHERE id = $1", [params.id]);
   if (!check.rows[0]) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (check.rows[0].user_id !== userId && !isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

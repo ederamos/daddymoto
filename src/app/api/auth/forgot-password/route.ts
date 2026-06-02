@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Always return success to avoid user enumeration
-  const result = await query("SELECT id FROM users WHERE email = $1", [email.toLowerCase()]);
+  const result = await query<{ id: string }>("SELECT id FROM users WHERE email = $1", [email.toLowerCase()]);
   if (result.rows.length === 0) {
     return NextResponse.json({ success: true });
   }
