@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
         replyTo: email,
         senderName: name,
         senderEmail: email,
-        listingTitle: listing.rows[0].title,
+        listingTitle: listing.rows[0].title as string,
         body,
       });
     }
