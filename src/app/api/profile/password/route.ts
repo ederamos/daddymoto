@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid input." }, { status: 400 });
   }
 
-  const result = await query("SELECT password_hash FROM users WHERE id = $1", [userId]);
+  const result = await query<{ password_hash: string }>("SELECT password_hash FROM users WHERE id = $1", [userId]);
   const valid = await bcrypt.compare(current, result.rows[0]?.password_hash || "");
   if (!valid) return NextResponse.json({ error: "Current password is incorrect." }, { status: 400 });
 

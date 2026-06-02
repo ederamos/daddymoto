@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
     }
 
-    const existing = await query("SELECT id FROM users WHERE email = $1", [email.toLowerCase()]);
+    const existing = await query<{ id: string }>("SELECT id FROM users WHERE email = $1", [email.toLowerCase()]);
     if (existing.rows.length > 0) {
       return NextResponse.json({ error: "An account with that email already exists." }, { status: 409 });
     }

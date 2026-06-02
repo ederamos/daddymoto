@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
 
   // Verify listing belongs to user
   const userId = (session.user as { id: string }).id;
-  const listing = await query("SELECT id FROM listings WHERE id = $1 AND user_id = $2", [listingId, userId]);
+  const listing = await query<{ id: string }>("SELECT id FROM listings WHERE id = $1 AND user_id = $2", [listingId, userId]);
   if (!listing.rows[0]) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
   await query(
