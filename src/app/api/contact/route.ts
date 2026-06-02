@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
 
     // Get seller email
     const seller = await query("SELECT email FROM users WHERE id = $1", [listing.rows[0].user_id]);
-    const sellerEmail = seller.rows[0]?.email;
+    const sellerEmail = seller.rows[0]?.email as string | undefined;
 
     // Send email if configured
     if (sellerEmail && process.env.RESEND_API_KEY) {
