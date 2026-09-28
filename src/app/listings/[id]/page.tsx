@@ -1,14 +1,56 @@
 import { notFound } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
+import type { Metadata } from "next";
 import { query } from "@/lib/db";
 import { formatPrice, formatMileage, formatDate } from "@/lib/utils";
 import { ContactForm } from "@/components/listings/ContactForm";
 import { SaveButton } from "@/components/listings/SaveButton";
+import { ShareButtons } from "@/components/listings/ShareButtons";
 import type { Listing } from "@/types";
 
 interface PageProps {
   params: { id: string };
+}
+
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://daddymoto.com";
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  try {
+    const result = await query<{
+      title: string;
+      description: string;
+      year: number | null;
+      make: string | null;
+      model: string | null;
+      status: string;
+      cover_photo: string | null;
+    }>(`
+      SELECT l.title, l.description, l.year, l.make, l.model, l.status,
+        (SELECT url FROM listing_photos WHERE listing_id = l.id ORDER BY sort_order LIMIT 1) AS cover_photo
+      FROM listings l WHERE l.id = $1
+    `, [params.id]);
+    const listing = result.rows[0];
+    if (!listing) return { title: "Listing not found" };
+
+    const title = listing.year && listing.make && listing.model
+      ? `${listing.year} ${listing.make} ${listing.model}`
+      : listing.title;
+    const description = listing.description.replace(/\s+/g, " ").trim().slice(0, 180);
+    const url = new URL(`/listings/${params.id}`, siteUrl).toString();
+    const images = listing.cover_photo ? [listing.cover_photo] : [];
+
+    return {
+      title,
+      description,
+      alternates: { canonical: url },
+      robots: listing.status === "active" || listing.status === "sold" ? undefined : { index: false },
+      openGraph: { title, description, url, type: "website", images },
+      twitter: { card: images.length ? "summary_large_image" : "summary", title, description, images },
+    };
+  } catch {
+    return { title: "Motorcycle listing" };
+  }
 }
 
 async function getListing(id: string): Promise<Listing | null> {
@@ -181,9 +223,19 @@ export default async function ListingDetailPage({ params }: PageProps) {
               </div>
             )}
 
-            <div className="flex gap-2 mb-4">
+            <div className="flex flex-wrap gap-2 mb-4">
               <SaveButton listingId={listing.id} />
             </div>
+
+            {(listing.status === "active" || listing.status === "sold") && (
+              <div className="mb-6 border-b border-zinc-800 pb-6">
+                <p className="text-xs text-zinc-500 uppercase tracking-widest mb-2">Share this listing</p>
+                <ShareButtons
+                  title={title}
+                  url={new URL(`/listings/${listing.id}`, siteUrl).toString()}
+                />
+              </div>
+            )}
 
             {listing.status === "active" ? (
               <ContactForm listingId={listing.id} />
