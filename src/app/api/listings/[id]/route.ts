@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { db, query } from "@/lib/db";
+import { authorizeListing, deletePhotoObject, listingIdSchema, PhotoError } from "@/lib/listing-photos";
 
 interface Params { params: { id: string } }
 
@@ -76,15 +77,24 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions);
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const userId = (session.user as { id: string; isAdmin?: boolean }).id;
-  const isAdmin = (session.user as { id: string; isAdmin?: boolean }).isAdmin;
-
-  const check = await query<{ user_id: string }>("SELECT user_id FROM listings WHERE id = $1", [params.id]);
-  if (!check.rows[0]) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (check.rows[0].user_id !== userId && !isAdmin) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!listingIdSchema.safeParse(params.id).success) {
+    return NextResponse.json({ error: "Invalid listing ID." }, { status: 400 });
   }
-
-  await query("DELETE FROM listings WHERE id = $1", [params.id]);
-  return NextResponse.json({ success: true });
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    await authorizeListing(client, params.id, session.user as { id: string });
+    const photos = await client.query<{ key: string }>("SELECT key FROM listing_photos WHERE listing_id = $1", [params.id]);
+    for (const photo of photos.rows) await deletePhotoObject(photo.key);
+    await client.query("DELETE FROM listings WHERE id = $1", [params.id]);
+    await client.query("COMMIT");
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    if (err instanceof PhotoError) return NextResponse.json({ error: err.message }, { status: err.status });
+    console.error("Listing deletion failed", err);
+    return NextResponse.json({ error: "Could not delete listing. Please try again." }, { status: 503 });
+  } finally {
+    client.release();
+  }
 }
