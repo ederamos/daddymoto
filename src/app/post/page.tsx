@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { US_STATES, MAKES, CONDITIONS } from "@/lib/utils";
 import type { Category } from "@/types";
+import { PHOTO_ACCEPT, uploadListingPhoto } from "@/lib/upload-listing-photo";
 
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: CURRENT_YEAR - 1899 }, (_, i) => CURRENT_YEAR + 1 - i);
@@ -15,6 +16,7 @@ export default function PostListingPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [photos, setPhotos] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [createdListingId, setCreatedListingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
     category_id: "", title: "", description: "",
@@ -50,27 +52,12 @@ export default function PostListingPage() {
         throw new Error(data.error || "Failed to create listing.");
       }
       const { id: listingId } = await res.json();
+      setCreatedListingId(listingId);
 
       // 2. Upload photos
       for (let i = 0; i < photos.length; i++) {
         const file = photos[i];
-        const uploadRes = await fetch("/api/upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contentType: file.type, listingId }),
-        });
-        if (!uploadRes.ok) continue;
-        const { uploadUrl, publicUrl, key } = await uploadRes.json();
-
-        // Upload to R2
-        await fetch(uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
-
-        // Save photo record
-        await fetch("/api/photos", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ listingId, url: publicUrl, key, sortOrder: i }),
-        });
+        await uploadListingPhoto(listingId, file);
       }
 
       router.push(`/listings/${listingId}`);
@@ -211,7 +198,7 @@ export default function PostListingPage() {
           <p className="text-xs text-zinc-500">First photo will be the cover. Max 10 photos.</p>
           <input
             type="file"
-            accept="image/*"
+            accept={PHOTO_ACCEPT}
             multiple
             className="block w-full text-sm text-zinc-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-zinc-800 file:text-zinc-300 hover:file:bg-zinc-700 cursor-pointer"
             onChange={(e) => setPhotos(Array.from(e.target.files || []).slice(0, 10))}
@@ -221,9 +208,12 @@ export default function PostListingPage() {
           )}
         </div>
 
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
+        {error && createdListingId && (
+          <p className="text-sm text-zinc-300">Your listing was created. <Link className="underline" href={`/dashboard/listing/${createdListingId}`}>Edit it to finish adding photos.</Link></p>
+        )}
 
-        <button type="submit" disabled={uploading} className="btn-primary w-full py-4 text-base">
+        <button type="submit" disabled={uploading || !!createdListingId} className="btn-primary w-full py-4 text-base">
           {uploading ? "Posting…" : "Publish Listing"}
         </button>
       </form>

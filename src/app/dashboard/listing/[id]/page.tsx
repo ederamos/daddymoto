@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import ListingPhotoEditor from "@/components/listings/ListingPhotoEditor";
 import { US_STATES, MAKES, CONDITIONS } from "@/lib/utils";
 import type { Category, Listing } from "@/types";
 
@@ -16,6 +17,7 @@ export default function EditListingPage({ params }: { params: { id: string } }) 
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
     category_id: "", title: "", description: "",
@@ -26,9 +28,13 @@ export default function EditListingPage({ params }: { params: { id: string } }) 
   });
 
   useEffect(() => {
-    fetch("/api/categories").then((r) => r.json()).then(setCategories);
+    fetch("/api/categories").then((r) => r.json()).then(setCategories).catch(() => {});
     fetch(`/api/listings/${params.id}/detail`)
-      .then((r) => r.json())
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || "Could not load listing.");
+        return data;
+      })
       .then((data: Listing) => {
         setListing(data);
         setForm({
@@ -51,45 +57,50 @@ export default function EditListingPage({ params }: { params: { id: string } }) 
         });
         setLoading(false);
       })
-      .catch(() => { setError("Listing not found."); setLoading(false); });
+      .catch((err) => { setError(err instanceof Error ? err.message : "Could not load listing."); setLoading(false); });
   }, [params.id]);
 
   function set(key: string, value: string | boolean) {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function saveListing(method: "PATCH" | "DELETE", body?: unknown) {
+    if (photoBusy || saving) return;
     setSaving(true);
     setError("");
-    const res = await fetch(`/api/listings/${params.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    setSaving(false);
-    if (res.ok) {
+    try {
+      const res = await fetch(`/api/listings/${params.id}`, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Could not save listing. Please try again.");
+      }
       router.push("/dashboard");
-    } else {
-      const d = await res.json().catch(() => ({}));
-      setError(d.error || "Save failed.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save listing. Please try again.");
+    } finally {
+      setSaving(false);
     }
   }
 
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await saveListing("PATCH", form);
+  }
+
   async function changeStatus(newStatus: string) {
+    if (photoBusy || saving) return;
     if (!confirm(`Mark this listing as "${newStatus}"?`)) return;
-    const res = await fetch(`/api/listings/${params.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: newStatus }),
-    });
-    if (res.ok) router.push("/dashboard");
+    await saveListing("PATCH", { status: newStatus });
   }
 
   async function deleteListing() {
+    if (photoBusy || saving) return;
     if (!confirm("Permanently delete this listing? This cannot be undone.")) return;
-    const res = await fetch(`/api/listings/${params.id}`, { method: "DELETE" });
-    if (res.ok) router.push("/dashboard");
+    await saveListing("DELETE");
   }
 
   if (status === "loading" || loading) return <div className="page-container py-20 text-center text-zinc-600">Loading…</div>;
@@ -112,17 +123,18 @@ export default function EditListingPage({ params }: { params: { id: string } }) 
       <div className="card p-4 mb-6 flex flex-wrap items-center gap-3">
         <span className="text-xs text-zinc-500 uppercase tracking-widest font-semibold">Status actions:</span>
         {listing?.status !== "sold" && (
-          <button onClick={() => changeStatus("sold")} className="btn-secondary text-xs py-1.5 px-3">
+          <button disabled={photoBusy || saving} onClick={() => changeStatus("sold")} className="btn-secondary text-xs py-1.5 px-3">
             Mark as Sold
           </button>
         )}
         {listing?.status !== "active" && (
-          <button onClick={() => changeStatus("active")} className="btn-secondary text-xs py-1.5 px-3">
+          <button disabled={photoBusy || saving} onClick={() => changeStatus("active")} className="btn-secondary text-xs py-1.5 px-3">
             Re-activate
           </button>
         )}
         <button
           onClick={deleteListing}
+          disabled={photoBusy || saving}
           className="btn text-xs py-1.5 px-3 text-red-400 border border-red-900/50 bg-red-950/30 hover:bg-red-950 ml-auto"
         >
           Delete Listing
@@ -130,6 +142,7 @@ export default function EditListingPage({ params }: { params: { id: string } }) 
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {listing && <ListingPhotoEditor key={listing.id} listingId={listing.id} initialPhotos={listing.photos || []} disabled={saving} onBusyChange={setPhotoBusy} />}
         <div className="card p-6 space-y-4">
           <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-500">Listing Info</h2>
           <div>
@@ -225,9 +238,9 @@ export default function EditListingPage({ params }: { params: { id: string } }) 
           </div>
         </div>
 
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
 
-        <button type="submit" disabled={saving} className="btn-primary w-full py-4 text-base">
+        <button type="submit" disabled={saving || photoBusy} className="btn-primary w-full py-4 text-base">
           {saving ? "Saving…" : "Save Changes"}
         </button>
       </form>
